@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#258653">
+  <title>Indian Food Diary</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Indian Food Diary home">
+        <span class="brand-mark">🌿</span>
+        <span><strong>Indian Food Diary</strong><small>Your everyday diary</small></span>
+      </a>
+      <button class="icon-button" id="settingsBtn" title="Daily targets" aria-label="Daily targets">⚙️</button>
+    </header>
+
+    <main>
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow">YOUR DAILY CHECK-IN</p>
+          <h1>Your food diary</h1>
+          <p class="muted">One day at a time. Small steps count. ✨</p>
+        </div>
+        <label class="date-label">Diary date
+          <input type="date" id="diaryDate">
+        </label>
+      </section>
+
+      <nav class="day-nav" aria-label="Diary date navigation">
+        <button class="soft-button" id="prevDay">← Previous day</button>
+        <span id="dateLabel">Today</span>
+        <button class="soft-button" id="nextDay">Next day →</button>
+      </nav>
+
+      <section class="nutrition-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">DAILY NUTRITION</p><h2>Today's nutrition</h2></div>
+          <button class="text-button" id="targetsBtn">Edit targets</button>
+        </div>
+        <div class="summary-grid">
+          <article class="calorie-card">
+            <div class="calorie-copy">
+              <span class="card-label">Calorie budget</span>
+              <strong id="caloriesLeft">Set a target</strong>
+              <span class="muted small" id="calorieSub">Add your daily calorie goal</span>
+              <div class="mini-track"><span id="calorieTrack"></span></div>
+              <div class="calorie-foot"><span id="caloriesEaten">0 kcal eaten</span><span id="caloriesGoal">No goal yet</span></div>
+            </div>
+            <div class="ring ring-small" id="calorieRing" role="img" aria-label="Calorie progress">
+              <div class="ring-inner"><strong id="caloriePercent">0%</strong><span>used</span></div>
+            </div>
+          </article>
+          <div class="macro-grid">
+            <article class="macro-card protein">
+              <div class="macro-top"><span class="macro-icon">💪</span><span>Protein</span></div>
+              <strong><span id="proteinEaten">0</span><small> g</small></strong>
+              <div class="mini-track"><span id="proteinTrack"></span></div>
+              <div class="macro-bottom"><span id="proteinGoal">No target</span><span id="proteinLeft">Set goal</span></div>
+            </article>
+            <article class="macro-card carbs">
+              <div class="macro-top"><span class="macro-icon">🌾</span><span>Carbs</span></div>
+              <strong><span id="carbsEaten">0</span><small> g</small></strong>
+              <div class="mini-track"><span id="carbsTrack"></span></div>
+              <div class="macro-bottom"><span id="carbsGoal">No target</span><span id="carbsLeft">Set goal</span></div>
+            </article>
+            <article class="macro-card fats">
+              <div class="macro-top"><span class="macro-icon">🥑</span><span>Fat</span></div>
+              <strong><span id="fatEaten">0</span><small> g</small></strong>
+              <div class="mini-track"><span id="fatTrack"></span></div>
+              <div class="macro-bottom"><span id="fatGoal">No target</span><span id="fatLeft">Set goal</span></div>
+            </article>
+            <article class="macro-card fibre">
+              <div class="macro-top"><span class="macro-icon">🍎</span><span>Fibre</span></div>
+              <strong><span id="fibreEaten">0</span><small> g</small></strong>
+              <p class="muted small">From foods logged</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="meals-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">YOUR FOOD, YOUR WAY</p><h2>Today's meals</h2><p class="muted small">Calories + macros, together</p></div>
+          <button class="primary-button" id="addFoodTop">＋ Add food</button>
+        </div>
+        <div id="mealsList" class="meals-grid"></div>
+      </section>
+
+      <section class="bottom-tools">
+        <button class="tool-card" id="savedMealsBtn"><span>⭐</span><span><strong>My saved meals</strong><small>Save combinations you eat often</small></span><b>›</b></button>
+        <button class="tool-card" id="copyYesterdayBtn"><span>📋</span><span><strong>Copy yesterday</strong><small>Bring yesterday's food into today</small></span><b>›</b></button>
+        <button class="tool-card" id="foodTotalsBtn"><span>🥦</span><span><strong>Fibre & food totals</strong><small>Review your logged nutrition</small></span><b>›</b></button>
+      </section>
+      <p class="disclaimer">Food values are estimates. Actual nutrition varies with portion size, recipe and cooking method.</p>
+    </main>
+    <footer>Made with care for everyday Indian meals 💚</footer>
+  </div>
+
+  <dialog id="foodDialog" class="modal">
+    <form id="foodForm" method="dialog">
+      <div class="modal-heading"><div><p class="eyebrow">ADD TO YOUR DIARY</p><h2 id="foodDialogTitle">Add food</h2></div><button type="button" class="close-button" data-close="foodDialog">×</button></div>
+      <label>Meal
+        <select id="foodMeal"><option>Breakfast</option><option>Lunch</option><option>Snacks</option><option>Dinner</option></select>
+      </label>
+      <label>Find an Indian food
+        <input id="foodSearch" type="search" placeholder="Try idli, roti, dal, banana…" autocomplete="off">
+      </label>
+      <div id="foodSuggestions" class="suggestions"></div>
+      <div class="form-grid">
+        <label>Food name<input id="foodName" required placeholder="e.g. homemade poha"></label>
+        <label>Quantity / servings<input id="foodQty" type="number" min="0.25" step="0.25" value="1" required></label>
+      </div>
+      <p class="muted small">Nutrition values below are per serving. Adjust for your recipe/portion.</p>
+      <div class="form-grid two">
+        <label>Calories (kcal)<input id="foodCalories" type="number" min="0" step="1" required></label>
+        <label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" value="0" required></label>
+        <label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" value="0" required></label>
+        <label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" value="0" required></label>
+        <label>Fibre (g)<input id="foodFibre" type="number" min="0" step="0.1" value="0" required></label>
+      </div>
+      <input type="hidden" id="foodEditId">
+      <div class="modal-actions"><button type="button" class="soft-button" data-close="foodDialog">Cancel</button><button class="primary-button" type="submit">Save food</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="targetsDialog" class="modal">
+    <form id="targetsForm" method="dialog">
+      <div class="modal-heading"><div><p class="eyebrow">MAKE IT YOURS</p><h2>Daily targets</h2></div><button type="button" class="close-button" data-close="targetsDialog">×</button></div>
+      <p class="muted small">Choose goals that suit you. These are tracking settings, not medical advice.</p>
+      <div class="form-grid">
+        <label>Calories (kcal)<input id="targetCalories" type="number" min="1" placeholder="e.g. 2000"></label>
+        <label>Protein (g)<input id="targetProtein" type="number" min="1" placeholder="e.g. 75"></label>
+        <label>Carbs (g)<input id="targetCarbs" type="number" min="1" placeholder="e.g. 250"></label>
+        <label>Fat (g)<input id="targetFat" type="number" min="1" placeholder="e.g. 65"></label>
+      </div>
+      <div class="modal-actions"><button type="button" class="soft-button" data-close="targetsDialog">Cancel</button><button class="primary-button" type="submit">Save targets</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="infoDialog" class="modal">
+    <div class="modal-heading"><div><p class="eyebrow">YOUR DIARY</p><h2 id="infoTitle">Food totals</h2></div><button type="button" class="close-button" data-close="infoDialog">×</button></div>
+    <div id="infoBody" class="info-body"></div>
+    <div class="modal-actions"><button type="button" class="primary-button" data-close="infoDialog">Done</button></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>
