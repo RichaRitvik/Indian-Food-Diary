@@ -1,22 +1,32 @@
-# Indian Food Diary — beginner starter project
+# Indian Food Diary 🥗
 
-This is a small, mobile-friendly web app built with plain HTML, CSS and JavaScript.
+A simple, mobile-friendly food tracking web app designed to make everyday nutrition tracking easier, with a focus on Indian meals.
 
-## Files
-- `index.html` — the page layout and dialogs
-- `style.css` — colors, spacing, responsive layout, and the smaller calorie ring
-- `app.js` — food logging, macro totals, daily targets, date navigation, edit/delete, and local saving
+## About the project
 
-## Run it on your laptop
-1. Download and unzip this folder.
-2. Open the folder.
-3. Double-click `index.html`. It should open in your browser.
-4. Add food and set targets to test it.
+Indian Food Diary is an independent project exploring a simple way to log meals and understand daily calorie and macronutrient intake.
 
-## Important notes
-- This is a new standalone starter version based on the layout details available from the existing app, not a direct export of the original ChatGPT-created site.
-- Food entries and targets are saved in the browser's local storage on that device/browser. They do not automatically sync to another device.
-- The included nutrition values are illustrative estimates per listed serving. Verify portions and values, especially for homemade recipes.
-- “My saved meals” is currently a placeholder; full saved-meal creation is not implemented yet.
-- No login, server, or paid service is required to test locally.
-- To share a public link, the files need to be hosted (for example, GitHub Pages or Netlify). Publishing does not sync entries across users/devices. Keep a backup before replacing any live site.
+## Project goals
+
+- Track everyday meals in one place.
+- Make logging familiar Indian foods more convenient.
+- View daily calorie and macronutrient totals.
+- Create a straightforward, mobile-friendly user experience.
+
+## Built with
+
+- HTML
+- CSS
+- JavaScript
+
+## Try the app
+
+**Live website:** https://richaritvik.github.io/Indian-Food-Diary/
+
+## Feedback
+
+I'm continuing to improve this project. Suggestions, usability feedback and ideas for useful features are welcome.
+
+## Disclaimer
+
+Nutrition values are estimates and can vary with ingredients, portion sizes and cooking methods. This tool is intended for general food tracking and is not a substitute for professional medical or nutrition advice.
