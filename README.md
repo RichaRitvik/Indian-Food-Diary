@@ -4,7 +4,7 @@ A simple, mobile-friendly food tracking web app designed to make everyday nutrit
 
 ## About the project
 
-Indian Food Diary is an independent project exploring a simple way to log meals and understand daily calorie and macronutrient intake.
+An Indian food diary designed to make everyday nutrition tracking simpler. Log your meals, explore familiar Indian foods, and keep track of calories and macronutrients throughout the day. Built as an independent project with a focus on simplicity and clarity.
 
 ## Project goals
 
