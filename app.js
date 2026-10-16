@@ -30,6 +30,8 @@ const foods = [
 ];
 const storageKey = "indianFoodDiary.v1";
 let state = loadState();
+// Older diary data may not yet have the saved-meals feature.
+if (!Array.isArray(state.savedMeals)) state.savedMeals = [];
 let toastTimer;
 function todayISO(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function loadState(){
@@ -133,11 +135,126 @@ function totalsInfo(){
 $("targetsBtn").addEventListener("click",openTargets);$("settingsBtn").addEventListener("click",openTargets);
 $("addFoodTop").addEventListener("click",()=>openFoodDialog("Breakfast"));
 $("foodTotalsBtn").addEventListener("click",totalsInfo);
-$("savedMealsBtn").addEventListener("click",()=>showInfo("My saved meals",`<p>Saved-meal shortcuts are a next-step feature. For now, you can add foods individually and edit or delete them any time.</p><p class="muted small">Your entries are saved in this browser on this device.</p>`));
-$("copyYesterdayBtn").addEventListener("click",()=>{
-  const d=new Date(`${currentDate()}T12:00:00`);d.setDate(d.getDate()-1);const prev=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const source=state.days[prev]?.entries||[];if(!source.length){showToast("No food entries found for the previous day");return;}
-  dayData().entries=source.map(e=>({...e,id:uid()}));saveState();render();showToast("Copied previous day's food");
+// Saved meals: save a breakfast/lunch/snack/dinner combination for quick reuse.
+// The original food entries and daily totals are not changed by saving a meal.
+function renderSavedMealsModal() {
+  const body = $("infoBody");
+  const selectedDate = currentDate();
+  const mealOptions = mealNames.map(meal =>
+    `<option value="${meal}">${meal}</option>`
+  ).join("");
+
+  const savedCards = state.savedMeals.length
+    ? state.savedMeals.map(meal => {
+        const entries = Array.isArray(meal.entries) ? meal.entries : [];
+        const total = sum(entries);
+        return `<div style="padding:12px 0;border-bottom:1px solid #e5e7eb">
+          <div style="font-weight:700;overflow-wrap:anywhere">${escapeHTML(meal.name)}</div>
+          <div class="muted small" style="margin:4px 0 10px">
+            ${entries.length} food item${entries.length===1?"":"s"} · ${Math.round(total.calories)} kcal
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <label class="small" for="meal-destination-${escapeHTML(meal.id)}">Add to</label>
+            <select id="meal-destination-${escapeHTML(meal.id)}" data-destination="${escapeHTML(meal.id)}"
+              style="flex:1;min-width:100px;padding:8px;border:1px solid #ddd;border-radius:8px">
+              ${mealNames.map(name => `<option value="${name}" ${name===meal.category?"selected":""}>${name}</option>`).join("")}
+            </select>
+            <button type="button" class="primary-button" data-add-saved="${escapeHTML(meal.id)}">Add</button>
+            <button type="button" data-delete-saved="${escapeHTML(meal.id)}">Delete</button>
+          </div>
+        </div>`;
+      }).join("")
+    : `<p class="muted small">No saved meals yet. Log foods under Breakfast, Lunch, Snacks or Dinner, then save that combination here.</p>`;
+
+  $("infoTitle").textContent = "My saved meals";
+  body.innerHTML = `
+    <p class="muted small">Save foods from <strong>${escapeHTML(datePretty(selectedDate))}</strong>
+       and reuse them on any date.</p>
+    <div style="display:grid;gap:8px;margin:12px 0 14px">
+      <label for="saveMealCategory">Which meal should be saved?</label>
+      <select id="saveMealCategory" style="padding:10px;border:1px solid #ddd;border-radius:8px">
+        ${mealOptions}
+      </select>
+      <label for="savedMealName">Saved meal name</label>
+      <input id="savedMealName" type="text" maxlength="80"
+        placeholder="e.g. Poha and tea" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ddd;border-radius:8px">
+      <button type="button" class="primary-button" id="saveCurrentMealBtn">Save this meal</button>
+    </div>
+    <h3 style="margin:16px 0 8px">Your saved meals (${state.savedMeals.length})</h3>
+    ${savedCards}
+    <p class="muted small" style="margin-top:16px">Saved meals are stored only in this browser on this device.</p>`;
+
+  if (!$("infoDialog").open) $("infoDialog").showModal();
+
+  $("saveCurrentMealBtn").addEventListener("click", () => {
+    const name = $("savedMealName").value.trim();
+    const category = $("saveMealCategory").value;
+    const entries = (dayData().entries || []).filter(e => e.meal === category);
+    if (!name) { showToast("Enter a name for your saved meal"); return; }
+    if (!entries.length) {
+      showToast(`No foods logged under ${category} on this date`);
+      return;
+    }
+
+    state.savedMeals.push({
+      id: uid(),
+      name,
+      category,
+      // Separate copies: editing a diary entry won't change saved meal nutrition.
+      entries: entries.map(({id, ...e}) => ({...e}))
+    });
+    saveState();
+    renderSavedMealsModal();
+    showToast("Meal saved for future use");
+  });
+
+  body.querySelectorAll("[data-add-saved]").forEach(button => {
+    button.addEventListener("click", () => {
+      const saved = state.savedMeals.find(meal => meal.id === button.dataset.addSaved);
+      if (!saved || !Array.isArray(saved.entries) || !saved.entries.length) return;
+      const category = body.querySelector(`[data-destination="${button.dataset.addSaved}"]`).value;
+      dayData().entries.push(...saved.entries.map(e => ({...e, id: uid(), meal: category})));
+      saveState();
+      render();
+      $("infoDialog").close();
+      showToast("Saved meal added to your diary");
+    });
+  });
+
+  body.querySelectorAll("[data-delete-saved]").forEach(button => {
+    button.addEventListener("click", () => {
+      const saved = state.savedMeals.find(meal => meal.id === button.dataset.deleteSaved);
+      if (!saved) return;
+      if (!confirm(`Delete saved meal "${saved.name}"? This won't remove food already logged.`)) return;
+      state.savedMeals = state.savedMeals.filter(meal => meal.id !== saved.id);
+      saveState();
+      renderSavedMealsModal();
+      showToast("Saved meal deleted");
+    });
+  });
+}
+$("savedMealsBtn").addEventListener("click", renderSavedMealsModal);
+
+// Copy foods from the immediately preceding calendar date.
+// Ask permission rather than silently replacing the selected day's entries.
+$("copyYesterdayBtn").addEventListener("click", () => {
+  const date = new Date(`${currentDate()}T12:00:00`);
+  date.setDate(date.getDate() - 1);
+  const previousDate = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const source = state.days[previousDate]?.entries || [];
+  if (!source.length) {
+    showToast("No foods recorded on the previous day");
+    return;
+  }
+  const currentEntries = dayData().entries;
+  if (currentEntries.length && !confirm(
+    "This day already has foods logged. Replace them with the previous day's foods?"
+  )) return;
+
+  dayData().entries = source.map(e => ({...e, id: uid()}));
+  saveState();
+  render();
+  showToast("Previous day's foods copied successfully");
 });
 $("diaryDate").value=todayISO();
 $("diaryDate").addEventListener("change",render);
