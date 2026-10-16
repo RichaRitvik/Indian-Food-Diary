@@ -1,0 +1,103 @@
+/* Indian Food Diary compact mobile update (October 2026).
+   Loaded AFTER the existing style.css. No existing diary data is changed. */
+
+/* The large date input is replaced by three real, navigable date chips.
+   Keep the input in the DOM so any previously saved date-handling logic works. */
+.date-area{margin-bottom:15px}
+.date-area-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:7px;color:var(--green-dark,#17653c);font-size:10px;font-weight:800;letter-spacing:1px}
+.date-hint{font-size:10px;font-weight:500;letter-spacing:0;color:var(--muted,#728078)}
+.day-nav{padding:0;gap:9px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}
+.date-picker-anchor{position:relative;min-width:0}
+.date-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:57px;gap:1px;border:1px solid #dfebe1;border-radius:13px;background:#f0f7f1;color:var(--green-dark,#17653c);font:inherit;cursor:pointer;white-space:nowrap;transition:background .15s ease}
+.date-chip:hover{background:#e5f2e9}
+.date-chip:focus-visible{outline:3px solid #7cbaa0;outline-offset:2px}
+.date-chip-weekday{font-weight:600;font-size:10px;color:#627b6a;letter-spacing:.2px}
+.date-chip strong{font-size:14px;line-height:1.2}
+.date-chip.selected{background:var(--green,#258653);color:white;border-color:var(--green,#258653)}
+.date-chip.selected .date-chip-weekday{color:#e0f6e5}
+.date-picker-input{position:absolute;left:50%;top:50%;opacity:0;width:1px;height:1px;border:0;padding:0;pointer-events:none}
+
+@media(max-width:720px){
+  .app-shell{padding:0 12px}
+  .topbar{height:53px}
+  .brand{gap:8px}
+  .brand-mark{width:34px;height:34px;border-radius:10px;font-size:20px}
+  .brand strong{font-size:15px}
+  .brand small{font-size:9px;margin-top:0}
+  .icon-button{width:36px;height:36px;border-radius:10px}
+  main{padding:9px 0 10px}
+  .page-heading{display:block;margin:0 0 9px}
+  .page-heading .eyebrow,.page-heading .muted{display:none}
+  .page-heading h1{font-size:22px;line-height:1.2;letter-spacing:-.5px;margin:0}
+
+  .date-area{margin:0 0 12px}
+  .date-area-title{margin-bottom:5px}
+  .day-nav{padding:0;gap:6px;font-size:12px}
+  .date-chip{height:51px;border-radius:11px}
+  .date-chip-weekday{font-size:10px}
+  .date-chip strong{font-size:14px}
+  .date-hint{font-size:9px}
+
+  .nutrition-panel{padding:11px;margin:0 0 14px;border-radius:15px}
+  .nutrition-panel .section-heading{margin-bottom:8px}
+  .nutrition-panel .section-heading .eyebrow{display:none}
+  .section-heading h2{font-size:18px;line-height:1.25;margin:0}
+  .text-button{padding:5px;font-size:11px}
+  .summary-grid{grid-template-columns:1fr;gap:7px}
+  .calorie-card{padding:10px 12px;gap:8px;border-radius:12px}
+  .card-label{margin-bottom:2px;font-size:11px}
+  .calorie-copy>strong{font-size:21px;margin-bottom:2px}
+  .calorie-copy .small{font-size:10px}
+  .calorie-copy .mini-track{margin-top:7px;height:5px}
+  .calorie-foot{margin-top:5px;font-size:9px}
+  .ring-small{width:58px;height:58px;padding:5px}
+  .ring-inner strong{font-size:15px}
+  .ring-inner span{font-size:9px}
+  .macro-grid{gap:7px}
+  .macro-card{padding:8px 10px;border-radius:12px}
+  .macro-top{font-size:11px;gap:5px}
+  .macro-icon{font-size:15px}
+  .macro-card>strong{font-size:19px;margin-top:2px}
+  .macro-card>strong small{font-size:10px}
+  .macro-card .mini-track{height:4px;margin-top:5px}
+  .macro-bottom{margin-top:3px;gap:3px;font-size:9px}
+  .macro-card .muted{margin:5px 0 0;font-size:10px}
+
+  .meals-section{margin-bottom:12px}
+  .meals-section .section-heading{margin-bottom:8px}
+  .meals-section .section-heading .eyebrow,
+  .meals-section .section-heading .muted{display:none}
+  #addFoodTop{font-size:11px;padding:8px 10px;border-radius:10px}
+  .meals-grid{grid-template-columns:1fr;gap:7px}
+  .meal-card{padding:10px 12px;border-radius:14px}
+  .meal-head{margin-bottom:7px}
+  .meal-title{gap:8px}
+  .meal-emoji{width:32px;height:32px;border-radius:10px;font-size:17px}
+  .meal-title h3{font-size:14px;margin:0}
+  .meal-title p{display:none}
+  .meal-kcal{font-size:12px}
+  .add-food-button{border-radius:8px;margin:0;padding:7px 10px;min-height:32px;font-size:12px}
+  .meal-card.is-empty .empty-state,
+  .meal-card.is-empty .meal-macros{display:none}
+  .meal-card:not(.is-empty) .meal-macros{padding-top:7px;margin-top:7px;gap:9px;font-size:10px}
+  .food-entry{padding:7px 0}
+  .entry-actions button{min-height:30px;padding:6px 10px;font-size:11px}
+
+  .bottom-tools{display:grid;grid-template-columns:1fr;gap:6px}
+  .tool-card{padding:8px 12px;border-radius:12px;min-height:45px;gap:10px}
+  .tool-card>span:first-child{font-size:20px}
+  .tool-card strong{font-size:12px}
+  .tool-card small{display:none}
+  .tool-card>b{font-size:20px}
+  .disclaimer{font-size:9px;line-height:1.35;margin:12px 0 3px;text-align:center}
+  footer{padding:11px 0 13px;font-size:10px}
+}
+
+/* Extremely narrow handsets: date chips and macro values remain on screen. */
+@media(max-width:355px){
+  .app-shell{padding:0 9px}
+  .date-hint{display:none}
+  .date-chip{height:49px}
+  .macro-card{padding:8px}
+  .macro-bottom{font-size:8px}
+}

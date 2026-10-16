@@ -5337,12 +5337,32 @@ function uid(){return `${Date.now()}-${Math.random().toString(16).slice(2)}`;}
 function sum(entries){return entries.reduce((a,e)=>{for(const k of ["calories","protein","carbs","fat","fibre"])a[k]+=(Number(e[k])||0)*(Number(e.qty)||1);return a;},{calories:0,protein:0,carbs:0,fat:0,fibre:0});}
 function fmt(n){return Math.round(n*10)/10;}
 function clampPct(value,goal){return goal>0?Math.max(0,Math.min(100,value/goal*100)):0;}
+// ISO dates are parsed at midday locally, avoiding UTC timezone date shifts.
+function fromISO(value){return new Date(`${value}T12:00:00`);}
+function shiftISO(value,delta){
+  const d=fromISO(value);d.setDate(d.getDate()+delta);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function weekdayShort(value){return fromISO(value).toLocaleDateString("en-IN",{weekday:"short"});}
+function chipDate(value){return fromISO(value).toLocaleDateString("en-IN",{day:"numeric",month:"short"});}
+function renderDateStrip(value){
+  const prev=shiftISO(value,-1),next=shiftISO(value,1);
+  $("prevWeekday").textContent=weekdayShort(prev);
+  $("prevDate").textContent=chipDate(prev);
+  $("selectedWeekday").textContent=weekdayShort(value);
+  $("dateLabel").textContent=chipDate(value);
+  $("nextWeekday").textContent=weekdayShort(next);
+  $("nextDate").textContent=chipDate(next);
+  $("pickDate").setAttribute("aria-label",`Choose diary date, selected ${datePretty(value)}`);
+  $("prevDay").setAttribute("aria-label",`Go to ${datePretty(prev)}`);
+  $("nextDay").setAttribute("aria-label",`Go to ${datePretty(next)}`);
+}
 function datePretty(value){const d=new Date(`${value}T12:00:00`);return d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
 function showToast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400);}
 function setBar(id,value,goal){$(id).style.width=`${clampPct(value,goal)}%`;}
 function render(){
   const date=currentDate(), entries=dayData(date).entries, total=sum(entries), t=state.targets;
-  $("dateLabel").textContent=date===todayISO()?"Today":datePretty(date);
+  renderDateStrip(date);
   $("caloriesEaten").textContent=`${Math.round(total.calories)} kcal eaten`;
   $("caloriesGoal").textContent=t.calories?`Goal ${t.calories.toLocaleString()} kcal`:"No goal yet";
   $("caloriePercent").textContent=t.calories?`${Math.round(total.calories/t.calories*100)}%`:"—";
@@ -5363,7 +5383,7 @@ function renderMeals(entries){
   const root=$("mealsList");root.innerHTML="";
   for(const meal of mealNames){
     const items=entries.filter(e=>e.meal===meal), total=sum(items), meta=mealMeta[meal];
-    const card=document.createElement("article");card.className="meal-card";
+    const card=document.createElement("article");card.className="meal-card"+(items.length?"":" is-empty");
     const head=document.createElement("div");head.className="meal-head";
     head.innerHTML=`<div class="meal-title"><span class="meal-emoji ${meta.cls}">${meta.emoji}</span><div><h3>${meal}</h3><p>${meta.hint}</p></div></div><div class="meal-kcal">${Math.round(total.calories)} <small>kcal</small></div>`;
     const add=document.createElement("button");add.className="add-food-button";add.textContent="＋ Add food";add.addEventListener("click",()=>openFoodDialog(meal));
@@ -5550,8 +5570,13 @@ $("copyYesterdayBtn").addEventListener("click", () => {
 });
 $("diaryDate").value=todayISO();
 $("diaryDate").addEventListener("change",render);
-function shiftDate(delta){const d=new Date(`${currentDate()}T12:00:00`);d.setDate(d.getDate()+delta);$("diaryDate").value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;render();}
+function shiftDate(delta){$("diaryDate").value=shiftISO(currentDate(),delta);render();}
 $("prevDay").addEventListener("click",()=>shiftDate(-1));$("nextDay").addEventListener("click",()=>shiftDate(1));
+$("pickDate").addEventListener("click",()=>{
+  const input=$("diaryDate");
+  try { if(typeof input.showPicker==="function") input.showPicker(); else input.click(); }
+  catch(e){input.focus();input.click();}
+});
 document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
 $("calorieRing").addEventListener("click",openTargets);
 render();
