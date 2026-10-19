@@ -1,11 +1,3 @@
-const $ = id => document.getElementById(id);
-const mealNames = ["Breakfast", "Lunch", "Snacks", "Dinner"];
-const mealMeta = {
-  Breakfast: { emoji: "🌅", hint: "A fresh start to your day", cls: "breakfast" },
-  Lunch: { emoji: "☀️", hint: "Your midday meal", cls: "lunch" },
-  Snacks: { emoji: "🍊", hint: "Little bites and sips", cls: "snacks" },
-  Dinner: { emoji: "🌙", hint: "Your evening meal", cls: "dinner" }
-};
 const foods = [
   {
     "name": "Idli (1 medium)",
@@ -5320,263 +5312,588 @@ const foods = [
     "fibre": 12
   }
 ];
-const storageKey = "indianFoodDiary.v1";
-let state = loadState();
-// Older diary data may not yet have the saved-meals feature.
-if (!Array.isArray(state.savedMeals)) state.savedMeals = [];
+
+// v2 app shell. Keep the v1 key so existing diaries and saved meals remain intact.
+const storageKey = 'indianFoodDiary.v1';
+const $ = id => document.getElementById(id);
+const mealNames = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+const mealIcons = {Breakfast:'☀',Lunch:'◒',Snacks:'◌',Dinner:'☾'};
+const metrics = ['calories','protein','carbs','fat','fibre'];
+const emptyTotals = () => ({calories:0,protein:0,carbs:0,fat:0,fibre:0});
+const defaultTargets={calories:2000,protein:75,carbs:250,fat:65,fibre:30};
+let state=loadState();
+let selectedDate=todayISO();
+let currentView='diary';
+let currentInsight='daily';
+let insightDate=selectedDate;
+let editingAbout=false, editingTargets=false;
+let selectedFood=null;
+let customMode=false;
+let expandedMeal='';
 let toastTimer;
-function todayISO(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+const dataFoods = foods.map(f=>({...f,source:'catalogue'}));
+
 function loadState(){
-  try { const s=JSON.parse(localStorage.getItem(storageKey)); if(s && s.days) return s; } catch(e){}
-  return {targets:{calories:2000,protein:75,carbs:250,fat:65},days:{},savedMeals:[]};
+  try{
+    const raw=JSON.parse(localStorage.getItem(storageKey));
+    if(raw && raw.days && typeof raw.days==='object'){
+      raw.targets={...defaultTargets,...(raw.targets||{})};
+      raw.savedMeals=Array.isArray(raw.savedMeals)?raw.savedMeals:[];
+      raw.savedFoods=Array.isArray(raw.savedFoods)?raw.savedFoods:[];
+      raw.customFoods=Array.isArray(raw.customFoods)?raw.customFoods:[];
+      raw.profile=(raw.profile&&typeof raw.profile==='object')?raw.profile:{};
+      raw.weights=(raw.weights&&typeof raw.weights==='object'&&!Array.isArray(raw.weights))?raw.weights:{};
+      for(const day of Object.values(raw.days)){
+        if(day&&typeof day==='object'){
+          if(!Array.isArray(day.entries))day.entries=[];
+          if(typeof day.complete!=='boolean')day.complete=false;
+        }
+      }
+      return raw;
+    }
+  }catch(err){console.warn('Diary could not be read',err);}
+  return {targets:{...defaultTargets},days:{},savedMeals:[],savedFoods:[],customFoods:[],profile:{},weights:{}};
 }
-function saveState(){localStorage.setItem(storageKey,JSON.stringify(state));}
-function currentDate(){return $("diaryDate").value || todayISO();}
-function dayData(date=currentDate()){if(!state.days[date])state.days[date]={entries:[]};return state.days[date];}
+function saveState(){
+  try{localStorage.setItem(storageKey,JSON.stringify(state));return true;}
+  catch(err){toast('Browser storage is full. Export your diary backup.');return false;}
+}
+function todayISO(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
+function pad(n){return String(n).padStart(2,'0');}
+function fromISO(v){return new Date(`${v}T12:00:00`);}
+function shiftISO(v,delta){const d=fromISO(v);d.setDate(d.getDate()+delta);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
+function datePretty(v){return fromISO(v).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});}
+function weekday(v){return fromISO(v).toLocaleDateString('en-IN',{weekday:'short'});}
+function shortDate(v){return fromISO(v).toLocaleDateString('en-IN',{day:'numeric',month:'short'});}
+function n(v){const value=Number(v);return Number.isFinite(value)?value:0;}
+function fmt(v){return (Math.round(n(v)*10)/10).toLocaleString('en-IN',{maximumFractionDigits:1});}
 function uid(){return `${Date.now()}-${Math.random().toString(16).slice(2)}`;}
-function sum(entries){return entries.reduce((a,e)=>{for(const k of ["calories","protein","carbs","fat","fibre"])a[k]+=(Number(e[k])||0)*(Number(e.qty)||1);return a;},{calories:0,protein:0,carbs:0,fat:0,fibre:0});}
-function fmt(n){return Math.round(n*10)/10;}
-function clampPct(value,goal){return goal>0?Math.max(0,Math.min(100,value/goal*100)):0;}
-// ISO dates are parsed at midday locally, avoiding UTC timezone date shifts.
-function fromISO(value){return new Date(`${value}T12:00:00`);}
-function shiftISO(value,delta){
-  const d=fromISO(value);d.setDate(d.getDate()+delta);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function escapeHTML(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function dayData(date=selectedDate){if(!state.days[date])state.days[date]={entries:[],complete:false};return state.days[date];}
+function readDay(date){const d=state.days[date];return d&&Array.isArray(d.entries)?d:{entries:[],complete:false};}
+function sum(entries){return entries.reduce((acc,e)=>{const q=n(e.qty)>0?n(e.qty):1;metrics.forEach(k=>acc[k]+=n(e[k])*q);return acc;},emptyTotals());}
+function pct(val,target){return n(target)>0?Math.max(0,Math.min(100,n(val)/n(target)*100)):0;}
+function toast(msg){const node=$('toast');node.textContent=msg;node.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('show'),2700);}
+function markEdited(){dayData().complete=false;}
+function getFoods(){return [...state.customFoods.map(f=>({...f,source:'my'})),...dataFoods];}
+
+// Navigation. Only one global Add Food control; no per-meal add buttons.
+function navigate(view){
+  currentView=view;
+  ['diary','insights','profile'].forEach(v=>{
+    $(`${v}View`).hidden=v!==view;
+    $(`nav${v[0].toUpperCase()+v.slice(1)}`).classList.toggle('active',v===view);
+  });
+  if(view==='insights')renderInsights();
+  if(view==='profile')renderProfile();
+  window.scrollTo({top:0,behavior:'instant'});
 }
-function weekdayShort(value){return fromISO(value).toLocaleDateString("en-IN",{weekday:"short"});}
-function chipDate(value){return fromISO(value).toLocaleDateString("en-IN",{day:"numeric",month:"short"});}
-function renderDateStrip(value){
-  const prev=shiftISO(value,-1),next=shiftISO(value,1);
-  $("prevWeekday").textContent=weekdayShort(prev);
-  $("prevDate").textContent=chipDate(prev);
-  $("selectedWeekday").textContent=weekdayShort(value);
-  $("dateLabel").textContent=chipDate(value);
-  $("nextWeekday").textContent=weekdayShort(next);
-  $("nextDate").textContent=chipDate(next);
-  $("pickDate").setAttribute("aria-label",`Choose diary date, selected ${datePretty(value)}`);
-  $("prevDay").setAttribute("aria-label",`Go to ${datePretty(prev)}`);
-  $("nextDay").setAttribute("aria-label",`Go to ${datePretty(next)}`);
+$('navDiary').addEventListener('click',()=>navigate('diary'));
+$('navInsights').addEventListener('click',()=>{insightDate=selectedDate;navigate('insights');});
+$('navProfile').addEventListener('click',()=>navigate('profile'));
+$('headerProfile').addEventListener('click',()=>navigate('profile'));
+$('addFoodBtn').addEventListener('click',()=>openFoodDialog());
+function setDate(date){if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(fromISO(date).getTime()))return;selectedDate=date;$('diaryDate').value=date;expandedMeal='';render();}
+$('prevDay').addEventListener('click',()=>setDate(shiftISO(selectedDate,-1)));
+$('nextDay').addEventListener('click',()=>setDate(shiftISO(selectedDate,1)));
+$('pickDate').addEventListener('click',()=>{const el=$('diaryDate');try{if(el.showPicker)el.showPicker();else el.click();}catch(e){el.focus();el.click();}});
+$('diaryDate').addEventListener('change',()=>setDate($('diaryDate').value));
+function renderDate(){
+  $('selectedWeekday').textContent=weekday(selectedDate);
+  $('dateLabel').textContent=datePretty(selectedDate);
+  const drop=document.createElement('span');drop.className='picker-chevron';drop.setAttribute('aria-hidden','true');drop.textContent='⌄';
+  $('dateLabel').append(drop);
+  $('diaryDate').value=selectedDate;
 }
-function datePretty(value){const d=new Date(`${value}T12:00:00`);return d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"});}
-function showToast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2400);}
-function setBar(id,value,goal){$(id).style.width=`${clampPct(value,goal)}%`;}
+
 function render(){
-  const date=currentDate(), entries=dayData(date).entries, total=sum(entries), t=state.targets;
-  renderDateStrip(date);
-  $("caloriesEaten").textContent=`${Math.round(total.calories)} kcal eaten`;
-  $("caloriesGoal").textContent=t.calories?`Goal ${t.calories.toLocaleString()} kcal`:"No goal yet";
-  $("caloriePercent").textContent=t.calories?`${Math.round(total.calories/t.calories*100)}%`:"—";
-  $("caloriesLeft").textContent=t.calories?`${Math.max(0,Math.round(t.calories-total.calories)).toLocaleString()} kcal left`:"Set a target";
-  $("calorieSub").textContent=t.calories?(total.calories>t.calories?"You've reached your goal — progress is information, not a grade.":"Keep logging as you go"):"Add your daily calorie goal";
-  $("calorieRing").style.setProperty("--progress",`${clampPct(total.calories,t.calories)*3.6}deg`);
-  setBar("calorieTrack",total.calories,t.calories);
-  for(const [key,label] of [["protein","Protein"],["carbs","Carbs"],["fat","Fat"]]){
-    $(key==="fat"?"fatEaten":`${key}Eaten`).textContent=fmt(total[key]);
-    $(key==="fat"?"fatGoal":`${key}Goal`).textContent=t[key]?`Goal ${t[key]} g`:"No target";
-    $(key==="fat"?"fatLeft":`${key}Left`).textContent=t[key]?`${fmt(Math.max(0,t[key]-total[key]))} g left`:"Set goal";
-    setBar(key==="fat"?"fatTrack":`${key}Track`,total[key],t[key]);
+  renderDate();
+  const entries=readDay(selectedDate).entries,total=sum(entries),t=state.targets;
+  $('caloriesEaten').textContent=Math.round(total.calories).toLocaleString('en-IN');
+  const delta=n(t.calories)-total.calories;
+  $('caloriesRemaining').textContent=n(t.calories)>0?`${Math.round(Math.abs(delta)).toLocaleString('en-IN')} kcal`:'—';
+  $('budgetLabel').textContent=n(t.calories)>0?(delta<0?'above target':'remaining'):'set a target';
+  $('calorieStatus').textContent=n(t.calories)>0?`Target ${fmt(t.calories)} kcal`:'Set your target in Profile';
+  $('calorieTrack').style.width=`${pct(total.calories,t.calories)}%`;
+  for(const key of ['protein','carbs','fat','fibre']){
+    $(`${key}Value`).innerHTML=`${fmt(total[key])} <small>g</small>`;
+    $(`${key}Goal`).textContent=n(t[key])>0?`${fmt(t[key])} g goal`:'No goal';
+    $(`${key}Track`).style.width=`${pct(total[key],t[key])}%`;
   }
-  $("fibreEaten").textContent=fmt(total.fibre);
+  $('entryCount').textContent=`${entries.length} food${entries.length===1?'':'s'}`;
+  const complete=readDay(selectedDate).complete;
+  $('dayCompleteTitle').textContent=complete?'Day marked complete':'Finished logging?';
+  $('dayCompleteHint').textContent=complete?'You can reopen it to add or edit foods.':'Get your daily analysis after logging your meals.';
+  $('completeDayBtn').textContent=complete?'Reopen':'Finish day →';
   renderMeals(entries);
+  if(currentView==='insights')renderInsights();
 }
-function renderMeals(entries){
-  const root=$("mealsList");root.innerHTML="";
-  for(const meal of mealNames){
-    const items=entries.filter(e=>e.meal===meal), total=sum(items), meta=mealMeta[meal];
-    const card=document.createElement("article");card.className="meal-card"+(items.length?"":" is-empty");
-    const head=document.createElement("div");head.className="meal-head";
-    head.innerHTML=`<div class="meal-title"><span class="meal-emoji ${meta.cls}">${meta.emoji}</span><div><h3>${meal}</h3><p>${meta.hint}</p></div></div><div class="meal-kcal">${Math.round(total.calories)} <small>kcal</small></div>`;
-    const add=document.createElement("button");add.className="add-food-button";add.textContent="＋ Add food";add.addEventListener("click",()=>openFoodDialog(meal));
-    card.append(head,add);
-    if(!items.length){const empty=document.createElement("div");empty.className="empty-state";empty.textContent="Nothing logged yet — add your first food 🌱";card.append(empty);}
-    else items.forEach(e=>{
-      const row=document.createElement("div");row.className="food-entry";
-      const name=document.createElement("div");name.innerHTML=`<strong>${escapeHTML(e.name)}</strong><small>${fmt(e.qty)} serving${Number(e.qty)===1?"":"s"} · ${Math.round(e.calories*e.qty)} kcal</small>`;
-      const right=document.createElement("div");right.style.textAlign="right";
-      const kcal=document.createElement("div");kcal.className="entry-kcal";kcal.textContent=`${Math.round(e.calories*e.qty)} kcal`;
-      const actions=document.createElement("div");actions.className="entry-actions";
-      const edit=document.createElement("button");edit.textContent="Edit";edit.addEventListener("click",()=>openFoodDialog(meal,e.id));
-      const del=document.createElement("button");del.textContent="Delete";del.addEventListener("click",()=>{dayData().entries=dayData().entries.filter(x=>x.id!==e.id);saveState();render();showToast("Food removed from your diary");});
-      actions.append(edit,del);right.append(kcal,actions);row.append(name,right);card.append(row);
-    });
-    const macros=document.createElement("div");macros.className="meal-macros";macros.innerHTML=`<span>Protein <b>${fmt(total.protein)}g</b></span><span>Carbs <b>${fmt(total.carbs)}g</b></span><span>Fat <b>${fmt(total.fat)}g</b></span><span>Fibre <b>${fmt(total.fibre)}g</b></span>`;card.append(macros);root.append(card);
+
+function entryAmountLabel(entry){
+  if(n(entry.amount)>0 && ['g','ml','portion','cup','glass','piece'].includes(entry.unit)){
+    const unit=entry.unit;
+    const units={portion:['listed serving','listed servings'],piece:['piece','pieces'],cup:['cup','cups'],glass:['glass','glasses']};
+    return `${fmt(entry.amount)} ${units[unit]?(n(entry.amount)===1?units[unit][0]:units[unit][1]):unit}`;
   }
+  return `${fmt(n(entry.qty)>0?entry.qty:1)} serving${n(entry.qty)===1?'':'s'}`;
 }
-function escapeHTML(str){return String(str).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function openFoodDialog(meal="Breakfast",id=""){
-  $("foodForm").reset();$("foodMeal").value=meal;$("foodQty").value=1;$("foodEditId").value=id;$("foodSearch").value="";$("foodSuggestions").innerHTML="";
-  $("foodDialogTitle").textContent=id?"Edit food":"Add food";
-  if(id){const e=dayData().entries.find(x=>x.id===id);if(e){$("foodMeal").value=e.meal;$("foodName").value=e.name;$("foodQty").value=e.qty;$("foodCalories").value=e.calories;$("foodProtein").value=e.protein;$("foodCarbs").value=e.carbs;$("foodFat").value=e.fat;$("foodFibre").value=e.fibre;}}
-  $("foodDialog").showModal();setTimeout(()=>$("foodSearch").focus(),50);
+
+function metaFor(food){
+  if(!food)return {weight:0,unit:''};
+  if(n(food.portionWeight)>0 && ['g','ml'].includes(food.portionUnit))return {weight:n(food.portionWeight),unit:food.portionUnit};
+  // Only numeric gram/ml values explicitly present in source food names are safe to convert.
+  const part=(food.name||'').match(/\(([^)]*)\)/)?.[1]||'';
+  const m=part.match(/(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\b/i);
+  if(!m)return {weight:0,unit:''};
+  const raw=n(m[1]),unit=m[2].toLowerCase();
+  return {weight:unit==='kg'||unit==='l'?raw*1000:raw,unit:unit==='kg'?'g':unit==='l'?'ml':unit};
+}
+function fractionNumber(raw){
+  const t=String(raw).trim();if(/^\d+\s*\/\s*\d+$/.test(t)){const [a,b]=t.split('/').map(Number);return b?a/b:0;}
+  return n(t);
+}
+function householdReference(food,unit){
+  if(!food||!['cup','glass','piece'].includes(unit))return 0;
+  if(food.measureReference?.unit===unit&&n(food.measureReference.amount)>0)return n(food.measureReference.amount);
+  const part=(food.name||'').match(/\(([^)]*)\)/)?.[1]?.trim()||'';
+  if(!part)return 0;
+  const quantity='(\\d+(?:\\.\\d+)?|\\d+\\s*\\/\\s*\\d+)';
+  let m;
+  if(unit==='cup')m=part.match(new RegExp('^'+quantity+'\\s*cups?\\b','i'));
+  else if(unit==='glass')m=part.match(new RegExp('^'+quantity+'\\s*glass(?:es)?\\b','i'));
+  else {
+    m=part.match(new RegExp('^'+quantity+'\\s*(?:pieces?|medium|large|small|idlis?|chillas?|eggs?|slices?|kernels?|halves?|nests?|bananas?|apples?)\\b','i'));
+    if(!m)m=part.match(new RegExp('^'+quantity+'$','i'));
+  }
+  return m?fractionNumber(m[1]):0;
+}
+function unitReference(food,unit){
+  if(unit==='g'||unit==='ml'){
+    const meta=metaFor(food);return meta.unit===unit?meta.weight:0;
+  }
+  return householdReference(food,unit);
+}
+function storedHouseholdSize(food){
+  return {size:n(food?.householdSize),unit:['g','ml'].includes(food?.householdSizeUnit)?food.householdSizeUnit:''};
+}
+function saveFavoriteFood(food,entry=null){
+  if(!food||!food.name)return;
+  const reference=metaFor(entry||food);
+  const favorite={id:uid(),name:food.name,...Object.fromEntries(metrics.map(k=>[k,n(food[k])])),portionWeight:reference.weight||undefined,portionUnit:reference.unit||undefined,
+    measureReference:entry?.measureReference||food.measureReference,householdSize:entry?.householdSize||food.householdSize,householdSizeUnit:entry?.householdSizeUnit||food.householdSizeUnit,
+    amount:entry?.amount??entry?.qty??1,unit:entry?.unit??'portion',qty:entry?.qty??1};
+  const old=state.savedFoods.findIndex(f=>f.name.toLowerCase()===favorite.name.toLowerCase());
+  if(old>=0)favorite.id=state.savedFoods[old].id;
+  if(old>=0)state.savedFoods[old]=favorite;else state.savedFoods.unshift(favorite);
+  saveState();toast('Individual food saved to Saved Foods');
+}
+
+function renderMeals(entries){
+  $('mealsList').innerHTML=mealNames.map(meal=>{
+    const items=entries.filter(e=>e.meal===meal),total=sum(items),open=expandedMeal===meal;
+    const rows=items.length?items.map(e=>`<div class="food-line"><div><strong>${escapeHTML(e.name)}</strong><small>${escapeHTML(entryAmountLabel(e))} · ${fmt(n(e.protein)*n(e.qty))} g protein</small></div><div class="food-line-right"><b>${Math.round(n(e.calories)*n(e.qty))} kcal</b><div class="entry-actions"><button type="button" data-save="${escapeHTML(e.id)}" aria-label="Save ${escapeHTML(e.name)} to saved foods">☆ Save</button><button type="button" data-edit="${escapeHTML(e.id)}">Edit</button><button type="button" class="delete" data-delete="${escapeHTML(e.id)}">Delete</button></div></div></div>`).join(''):'<p class="meal-empty">No foods logged yet</p>';
+    return `<div class="meal-row ${open?'expanded':''}"><button class="meal-row-head" type="button" data-meal="${meal}" aria-expanded="${open}"><span class="meal-left"><span class="meal-icon">${mealIcons[meal]}</span><span><strong>${meal}</strong><span class="meta">${items.length} food${items.length===1?'':'s'}</span></span></span><span class="meal-right">${Math.round(total.calories)} kcal <span class="chevron">›</span></span></button><div class="meal-contents" ${open?'':'hidden'}>${rows}</div></div>`;
+  }).join('');
+  $('mealsList').querySelectorAll('[data-meal]').forEach(btn=>btn.addEventListener('click',()=>{expandedMeal=expandedMeal===btn.dataset.meal?'':btn.dataset.meal;renderMeals(readDay(selectedDate).entries);}));
+  $('mealsList').querySelectorAll('[data-save]').forEach(btn=>btn.addEventListener('click',()=>{
+    const entry=readDay(selectedDate).entries.find(e=>e.id===btn.dataset.save);if(entry)saveFavoriteFood(entry,entry);
+  }));
+  $('mealsList').querySelectorAll('[data-edit]').forEach(btn=>btn.addEventListener('click',()=>openFoodDialog(btn.closest('.meal-row').querySelector('[data-meal]').dataset.meal,btn.dataset.edit)));
+  $('mealsList').querySelectorAll('[data-delete]').forEach(btn=>btn.addEventListener('click',()=>{
+    dayData().entries=dayData().entries.filter(e=>e.id!==btn.dataset.delete);
+    markEdited();saveState();render();toast('Food removed');
+  }));
+}
+$('completeDayBtn').addEventListener('click',()=>{
+  const day=dayData();if(!day.complete&&!day.entries.length){toast('Log at least one food before finishing.');return;}
+  day.complete=!day.complete;saveState();render();if(day.complete){insightDate=selectedDate;currentInsight='daily';updateInsightsTabs();navigate('insights');}else toast('Day reopened for editing');
+});
+
+// Search-first logging. Each entry retains per-portion nutrients and its original servings ratio.
+function openFoodDialog(meal='Breakfast',editId='',favorite=null){
+  selectedFood=null;customMode=false;
+  $('foodForm').reset();$('foodMeal').value=meal;$('foodQty').value='1';$('foodUnit').value='portion';$('portionWeight').value='';$('portionWeight').dataset.unit='';$('householdSize').value='';$('householdSizeUnit').value='g';
+  $('foodEditId').value=editId;$('selectedFoodHint').hidden=true;$('foodSearch').value='';
+  $('foodDialogTitle').textContent=editId?'Edit food':'Add food';$('saveFoodBtn').textContent=editId?'Save changes':'Add to diary';
+  $('saveFavorite').checked=false;$('customFields').hidden=true;$('customFoodToggle').textContent='＋ Can\'t find it? Create your own food';
+  const existing=editId?readDay(selectedDate).entries.find(e=>e.id===editId):null;
+  if(existing){
+    selectedFood={...existing};$('foodSearch').value=existing.name;$('foodMeal').value=existing.meal;
+    const amount=n(existing.amount)>0?n(existing.amount):n(existing.qty)||1;
+    $('foodQty').value=amount;$('foodUnit').value=existing.unit||'portion';
+    $('portionWeight').value=unitReference(existing,existing.unit)||'';$('portionWeight').dataset.unit=existing.unit||'';
+    $('householdSize').value=n(existing.householdSize)||'';$('householdSizeUnit').value=existing.householdSizeUnit||'g';
+    // Old entries keep nutrients and quantity exactly; users can still edit all 5 values if required.
+    setCustomMode(true);fillCustomFields(existing);$('saveCustomFood').checked=false;
+  }else if(favorite){
+    selectedFood={...favorite};$('foodSearch').value=favorite.name;
+    $('foodQty').value=n(favorite.amount)||1;
+    $('foodUnit').value=['portion','piece','cup','glass','g','ml'].includes(favorite.unit)?favorite.unit:'portion';
+    $('portionWeight').value=unitReference(favorite,$('foodUnit').value)||'';$('portionWeight').dataset.unit=$('foodUnit').value;
+    $('householdSize').value=n(favorite.householdSize)||'';$('householdSizeUnit').value=favorite.householdSizeUnit||'g';
+    fillCustomFields(favorite);
+  }
+  showSuggestions();if(selectedFood)showSelectedFood();updatePortionUI();
+  $('foodDialog').showModal();if(!selectedFood)setTimeout(()=>$('foodSearch').focus(),60);
+}
+function setCustomMode(on){
+  customMode=on;$('customFields').hidden=!on;
+  $('customFoodToggle').textContent=on?'− Hide nutrition fields':'+ Can\'t find it? Create your own food';
+  if(on){$('foodName').value=$('foodName').value||$('foodSearch').value.trim();}
+  updatePortionUI();
+}
+function fillCustomFields(food){
+  for(const [field,k] of [['foodName','name'],['foodCalories','calories'],['foodProtein','protein'],['foodCarbs','carbs'],['foodFat','fat'],['foodFibre','fibre']])$(field).value=food[k]??'';
+}
+function showSelectedFood(){
+  const food=selectedFood;$('selectedFoodHint').hidden=!food;
+  if(food)$('selectedFoodHint').textContent=`✓ ${food.name} · ${fmt(food.calories)} kcal per listed serving`;
 }
 function chooseFood(food){
-  $("foodName").value=food.name;$("foodCalories").value=food.calories;$("foodProtein").value=food.protein;$("foodCarbs").value=food.carbs;$("foodFat").value=food.fat;$("foodFibre").value=food.fibre;
-  $("foodSuggestions").innerHTML="";showToast(`${food.name} selected — check the portion and values`);
+  selectedFood={...food};$('foodSearch').value=food.name;fillCustomFields(food);setCustomMode(false);
+  $('foodUnit').value='portion';$('foodQty').value='1';$('portionWeight').value='';$('portionWeight').dataset.unit='';$('householdSize').value=food.householdSize||'';$('householdSizeUnit').value=food.householdSizeUnit||'g';
+  $('foodSuggestions').replaceChildren();showSelectedFood();updatePortionUI();
 }
-function renderSuggestions(){
-  const q=$("foodSearch").value.trim().toLowerCase(), box=$("foodSuggestions");box.innerHTML="";
-  if(!q)return;
-  const matches=foods.filter(f=>f.name.toLowerCase().includes(q)).slice(0,7);
-  matches.forEach(f=>{const b=document.createElement("button");b.type="button";b.className="suggestion";b.textContent=`${f.name} · ${f.calories} kcal`;b.addEventListener("click",()=>chooseFood(f));box.append(b);});
-  if(!matches.length){const p=document.createElement("span");p.className="muted small";p.textContent="No quick match — enter your food and nutrition values below.";box.append(p);}
-}
-$("foodSearch").addEventListener("input",renderSuggestions);
-$("foodForm").addEventListener("submit",e=>{
-  e.preventDefault();
-  const id=$("foodEditId").value;
-  const entry={id:id||uid(),meal:$("foodMeal").value,name:$("foodName").value.trim(),qty:Number($("foodQty").value),calories:Number($("foodCalories").value),protein:Number($("foodProtein").value),carbs:Number($("foodCarbs").value),fat:Number($("foodFat").value),fibre:Number($("foodFibre").value)};
-  if(!entry.name||entry.qty<=0)return;
-  const list=dayData().entries;
-  if(id){const i=list.findIndex(x=>x.id===id);if(i>=0)list[i]=entry;}else list.push(entry);
-  saveState();$("foodDialog").close();render();showToast(id?"Food updated":"Food added to your diary");
-});
-function openTargets(){
-  for(const k of ["calories","protein","carbs","fat"])$(`target${k[0].toUpperCase()+k.slice(1)}`).value=state.targets[k]||"";
-  $("targetsDialog").showModal();
-}
-$("targetsForm").addEventListener("submit",e=>{
-  e.preventDefault();
-  for(const k of ["calories","protein","carbs","fat"]){const v=Number($(`target${k[0].toUpperCase()+k.slice(1)}`).value);state.targets[k]=v>0?v:0;}
-  saveState();$("targetsDialog").close();render();showToast("Daily targets saved");
-});
-function showInfo(title,body){$("infoTitle").textContent=title;$("infoBody").innerHTML=body;$("infoDialog").showModal();}
-function totalsInfo(){
-  const total=sum(dayData().entries);
-  showInfo("Food totals",`<div class="info-row"><span>Calories</span><strong>${Math.round(total.calories)} kcal</strong></div><div class="info-row"><span>Protein</span><strong>${fmt(total.protein)} g</strong></div><div class="info-row"><span>Carbohydrates</span><strong>${fmt(total.carbs)} g</strong></div><div class="info-row"><span>Fat</span><strong>${fmt(total.fat)} g</strong></div><div class="info-row"><span>Fibre</span><strong>${fmt(total.fibre)} g</strong></div><p class="muted small" style="margin-top:14px">Estimates depend on portion size and recipe. For packaged foods, use the nutrition label when available.</p>`);
-}
-$("targetsBtn").addEventListener("click",openTargets);$("settingsBtn").addEventListener("click",openTargets);
-$("addFoodTop").addEventListener("click",()=>openFoodDialog("Breakfast"));
-$("foodTotalsBtn").addEventListener("click",totalsInfo);
-// Saved meals: save a breakfast/lunch/snack/dinner combination for quick reuse.
-// The original food entries and daily totals are not changed by saving a meal.
-function renderSavedMealsModal() {
-  const body = $("infoBody");
-  const selectedDate = currentDate();
-  const mealOptions = mealNames.map(meal =>
-    `<option value="${meal}">${meal}</option>`
-  ).join("");
-
-  const savedCards = state.savedMeals.length
-    ? state.savedMeals.map(meal => {
-        const entries = Array.isArray(meal.entries) ? meal.entries : [];
-        const total = sum(entries);
-        return `<div style="padding:12px 0;border-bottom:1px solid #e5e7eb">
-          <div style="font-weight:700;overflow-wrap:anywhere">${escapeHTML(meal.name)}</div>
-          <div class="muted small" style="margin:4px 0 10px">
-            ${entries.length} food item${entries.length===1?"":"s"} · ${Math.round(total.calories)} kcal
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-            <label class="small" for="meal-destination-${escapeHTML(meal.id)}">Add to</label>
-            <select id="meal-destination-${escapeHTML(meal.id)}" data-destination="${escapeHTML(meal.id)}"
-              style="flex:1;min-width:100px;padding:8px;border:1px solid #ddd;border-radius:8px">
-              ${mealNames.map(name => `<option value="${name}" ${name===meal.category?"selected":""}>${name}</option>`).join("")}
-            </select>
-            <button type="button" class="primary-button" data-add-saved="${escapeHTML(meal.id)}">Add</button>
-            <button type="button" data-delete-saved="${escapeHTML(meal.id)}">Delete</button>
-          </div>
-        </div>`;
-      }).join("")
-    : `<p class="muted small">No saved meals yet. Log foods under Breakfast, Lunch, Snacks or Dinner, then save that combination here.</p>`;
-
-  $("infoTitle").textContent = "My saved meals";
-  body.innerHTML = `
-    <p class="muted small">Save foods from <strong>${escapeHTML(datePretty(selectedDate))}</strong>
-       and reuse them on any date.</p>
-    <div style="display:grid;gap:8px;margin:12px 0 14px">
-      <label for="saveMealCategory">Which meal should be saved?</label>
-      <select id="saveMealCategory" style="padding:10px;border:1px solid #ddd;border-radius:8px">
-        ${mealOptions}
-      </select>
-      <label for="savedMealName">Saved meal name</label>
-      <input id="savedMealName" type="text" maxlength="80"
-        placeholder="e.g. Poha and tea" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #ddd;border-radius:8px">
-      <button type="button" class="primary-button" id="saveCurrentMealBtn">Save this meal</button>
-    </div>
-    <h3 style="margin:16px 0 8px">Your saved meals (${state.savedMeals.length})</h3>
-    ${savedCards}
-    <p class="muted small" style="margin-top:16px">Saved meals are stored only in this browser on this device.</p>`;
-
-  if (!$("infoDialog").open) $("infoDialog").showModal();
-
-  $("saveCurrentMealBtn").addEventListener("click", () => {
-    const name = $("savedMealName").value.trim();
-    const category = $("saveMealCategory").value;
-    const entries = (dayData().entries || []).filter(e => e.meal === category);
-    if (!name) { showToast("Enter a name for your saved meal"); return; }
-    if (!entries.length) {
-      showToast(`No foods logged under ${category} on this date`);
-      return;
-    }
-
-    state.savedMeals.push({
-      id: uid(),
-      name,
-      category,
-      // Separate copies: editing a diary entry won't change saved meal nutrition.
-      entries: entries.map(({id, ...e}) => ({...e}))
-    });
-    saveState();
-    renderSavedMealsModal();
-    showToast("Meal saved for future use");
-  });
-
-  body.querySelectorAll("[data-add-saved]").forEach(button => {
-    button.addEventListener("click", () => {
-      const saved = state.savedMeals.find(meal => meal.id === button.dataset.addSaved);
-      if (!saved || !Array.isArray(saved.entries) || !saved.entries.length) return;
-      const category = body.querySelector(`[data-destination="${button.dataset.addSaved}"]`).value;
-      dayData().entries.push(...saved.entries.map(e => ({...e, id: uid(), meal: category})));
-      saveState();
-      render();
-      $("infoDialog").close();
-      showToast("Saved meal added to your diary");
-    });
-  });
-
-  body.querySelectorAll("[data-delete-saved]").forEach(button => {
-    button.addEventListener("click", () => {
-      const saved = state.savedMeals.find(meal => meal.id === button.dataset.deleteSaved);
-      if (!saved) return;
-      if (!confirm(`Delete saved meal "${saved.name}"? This won't remove food already logged.`)) return;
-      state.savedMeals = state.savedMeals.filter(meal => meal.id !== saved.id);
-      saveState();
-      renderSavedMealsModal();
-      showToast("Saved meal deleted");
-    });
-  });
-}
-$("savedMealsBtn").addEventListener("click", renderSavedMealsModal);
-
-// Copy foods from the immediately preceding calendar date.
-// Ask permission rather than silently replacing the selected day's entries.
-$("copyYesterdayBtn").addEventListener("click", () => {
-  const date = new Date(`${currentDate()}T12:00:00`);
-  date.setDate(date.getDate() - 1);
-  const previousDate = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
-  const source = state.days[previousDate]?.entries || [];
-  if (!source.length) {
-    showToast("No foods recorded on the previous day");
-    return;
+function showSuggestions(){
+  const q=$('foodSearch').value.trim().toLowerCase();
+  $('foodSuggestions').replaceChildren();$('selectedFoodHint').hidden=true;
+  if(!q){const el=document.createElement('p');el.className='empty-message';el.textContent='Search the food catalogue, or create a custom food.';$('foodSuggestions').append(el);return;}
+  const matches=getFoods().filter(f=>f.name.toLowerCase().includes(q)).slice(0,9);
+  if(!matches.length){const msg=document.createElement('p');msg.className='empty-message';msg.textContent='No match? Create your own food below.';$('foodSuggestions').append(msg);return;}
+  for(const food of matches){
+    const b=document.createElement('button');b.type='button';b.className='suggestion';
+    const name=document.createElement('span');name.textContent=`${food.source==='my'?'★ ':''}${food.name}`;
+    const kc=document.createElement('small');kc.textContent=`${fmt(food.calories)} kcal/serving`;
+    b.append(name,kc);b.addEventListener('click',()=>chooseFood(food));$('foodSuggestions').append(b);
   }
-  const currentEntries = dayData().entries;
-  if (currentEntries.length && !confirm(
-    "This day already has foods logged. Replace them with the previous day's foods?"
-  )) return;
+}
+function getFormFood(){
+  if(!customMode)return selectedFood;
+  const food={name:$('foodName').value.trim(),...Object.fromEntries(metrics.map(k=>[k,n($(`food${k[0].toUpperCase()+k.slice(1)}`).value)]))};
+  if(selectedFood && selectedFood.name===food.name){for(const key of ['portionWeight','portionUnit','measureReference','householdSize','householdSizeUnit'])if(selectedFood[key]!==undefined)food[key]=selectedFood[key];}
+  return food;
+}
+function calculatedPortions(food){
+  const amount=n($('foodQty').value),unit=$('foodUnit').value;
+  if(amount<=0)return null;
+  const inputReference=n($('portionWeight').value);
+  if(unit==='portion')return {ratio:amount,amount,unit,portionWeight:metaFor(food).weight||0,portionUnit:metaFor(food).unit||'',referenceAmount:1};
+  const known=unitReference(food,unit),supplied=$('portionWeight').dataset.unit===unit?inputReference:0;
+  const household=['cup','glass'].includes(unit);
+  const measured=n($('householdSize').value),measuredUnit=$('householdSizeUnit').value;
+  const meta=metaFor(food);
+  const inferredByWeight=household&&measured>0&&meta.weight>0&&meta.unit===measuredUnit;
+  const reference=inferredByWeight?meta.weight/measured:(known||supplied);
+  if(reference<=0)return null;
+  // Use an explicit cup/glass measurement for unit conversion only if the user actually supplied it.
+  let portionWeight=metaFor(food).weight,portionUnit=metaFor(food).unit;
+  const container=n($('householdSize').value),sizeUnit=$('householdSizeUnit').value;
+  if(household&&container>0&&['g','ml'].includes(sizeUnit)){
+    portionWeight=reference*container;portionUnit=sizeUnit;
+  }
+  if(['g','ml'].includes(unit)){portionWeight=reference;portionUnit=unit;}
+  return {ratio:amount/reference,amount,unit,referenceAmount:reference,portionWeight,portionUnit};
+}
+function updatePortionUI(){
+  const food=getFormFood(),unit=$('foodUnit').value,amount=n($('foodQty').value);
+  const known=unitReference(food,unit)>0;
+  const measured=n($('householdSize').value),measuredUnit=$('householdSizeUnit').value,metaForUnit=metaFor(food);
+  const canDerive=['cup','glass'].includes(unit)&&measured>0&&metaForUnit.weight>0&&metaForUnit.unit===measuredUnit;
+  const weightBlock=$('portionWeightBlock');
+  weightBlock.hidden=unit==='portion'||known||canDerive;
+  const names={portion:'Listed servings',g:'Grams (g)',ml:'Millilitres (ml)',cup:'Cups',glass:'Glasses',piece:'Pieces / numbers'};
+  $('portionWeightLabel').firstChild.textContent=`${names[unit]||'Units'} in one listed serving `;
+  $('portionWeightHelp').textContent=unit==='g'||unit==='ml'
+    ?`Enter how many ${unit} make up ONE listed serving. This is needed to calculate from ${unit}.`
+    :`How many ${names[unit].toLowerCase()} make up ONE listed serving? Enter the actual number if it isn't given.`;
+  if(unit!=='portion'&&known){$('portionWeight').value=unitReference(food,unit);$('portionWeight').dataset.unit=unit;}
+  const household=['cup','glass'].includes(unit);
+  $('householdSizeBlock').hidden=!household;
+  $('householdType').textContent=unit;
+  $('householdSizeHelp').textContent=unit==='cup'
+    ?'Enter grams (g) or volume (ml) for YOUR cup if known. Without a listed cup reference, this or a measured equivalent is needed; food densities vary.'
+    :'Enter the measured ml (or grams) in YOUR glass if known. Without a listed glass reference, this or a measured equivalent is needed.';
+    const part=food?.name?.match(/\(([^)]*)\)/)?.[1]||'listed serving';
+  const explicit=/\d+(?:\.\d+)?\s*(g|kg|ml|l)\b/i.test(part);
+  const meta=metaFor(food);
+  const direct=`${meta.weight?` · ${fmt(meta.weight)} ${meta.unit}${explicit?' listed':' user supplied'}`:''}`;
+  $('portionReference').textContent=food?`Database serving: ${part}${direct}${!meta.weight?' · weight/volume not provided':''}`:'Select a food from the list or create your own.';
+  const portions=food?calculatedPortions(food):null;
+  if(!food?.name||!amount){$('portionPreview').textContent='Select a food and enter an amount to see estimated nutrition.';return;}
+  if(!portions){$('portionPreview').textContent=`Enter the number of ${unit==='g'?'grams':unit==='ml'?'millilitres':unit==='piece'?'pieces':unit==='glass'?'glasses':'cups'} in one listed serving to calculate. No conversion is guessed.`;return;}
+  const namesSing={portion:'listed serving',piece:'piece',cup:'cup',glass:'glass'};
+  const pluralUnits={portion:'listed servings',piece:'pieces',cup:'cups',glass:'glasses'};
+  const showUnit=namesSing[unit]?(amount===1?namesSing[unit]:pluralUnits[unit]):unit;
+  const size=n($('householdSize').value),sizeUnit=$('householdSizeUnit').value;
+  const detail=household&&size>0?` · 1 ${unit} = ${fmt(size)} ${sizeUnit} (your measurement)` : household?' · cup/glass size not yet measured':'';
+  $('portionPreview').textContent=`${fmt(amount)} ${showUnit} = ${fmt(portions.ratio)} listed serving(s)${detail} · ${fmt(n(food.calories)*portions.ratio)} kcal · protein ${fmt(n(food.protein)*portions.ratio)} g · carbs ${fmt(n(food.carbs)*portions.ratio)} g · fat ${fmt(n(food.fat)*portions.ratio)} g · fibre ${fmt(n(food.fibre)*portions.ratio)} g`;
+}
+$('foodSearch').addEventListener('input',()=>{selectedFood=null;if(customMode)$('foodName').value=$('foodSearch').value;showSuggestions();updatePortionUI();});
+$('customFoodToggle').addEventListener('click',()=>{
+  const next=!customMode;setCustomMode(next);
+  if(next){if(selectedFood)fillCustomFields(selectedFood);else $('foodName').value=$('foodSearch').value.trim();}
+  updatePortionUI();
+});
+$('foodUnit').addEventListener('change',()=>{$('portionWeight').value='';$('portionWeight').dataset.unit='';$('householdSize').value='';$('householdSizeUnit').value=$('foodUnit').value==='glass'?'ml':'g';updatePortionUI();});
+$('portionWeight').addEventListener('input',()=>{$('portionWeight').dataset.unit=$('foodUnit').value;updatePortionUI();});
+$('householdSize').addEventListener('input',updatePortionUI);
+$('householdSizeUnit').addEventListener('change',updatePortionUI);
+['foodQty','foodName','foodCalories','foodProtein','foodCarbs','foodFat','foodFibre'].forEach(id=>$(id).addEventListener('input',updatePortionUI));
+$('foodForm').addEventListener('submit',event=>{
+  event.preventDefault();
+  const editId=$('foodEditId').value,meal=$('foodMeal').value,source=getFormFood();
+  const amount=n($('foodQty').value);
+  if(!mealNames.includes(meal)||amount<=0||amount>100000){toast('Enter a valid meal and quantity');return;}
+  if(!source?.name){toast('Select or create a food first');return;}
+  if(customMode){
+    if(metrics.some(k=>$(`food${k[0].toUpperCase()+k.slice(1)}`).value===''||!Number.isFinite(n(source[k]))||n(source[k])<0)){toast('Enter all five per-portion nutrition values');return;}
+    if(n(source.calories)===0&&metrics.slice(1).some(k=>n(source[k])>0)){toast('Check calories for this food');return;}
+  }
+  const portion=calculatedPortions(source);
+  if(!portion||!Number.isFinite(portion.ratio)||portion.ratio<=0){toast('Enter a valid measured amount or reference for this unit');return;}
+  const entry={id:editId||uid(),meal,qty:portion.ratio,name:source.name,...Object.fromEntries(metrics.map(k=>[k,n(source[k])])),
+    amount:portion.amount,unit:portion.unit,portionWeight:portion.portionWeight||undefined,portionUnit:portion.portionUnit||undefined,
+    measureReference:['cup','glass','piece'].includes(portion.unit)?{unit:portion.unit,amount:portion.referenceAmount}:source.measureReference,
+    householdSize:['cup','glass'].includes(portion.unit)?n($('householdSize').value)||undefined:source.householdSize,
+    householdSizeUnit:['cup','glass'].includes(portion.unit)&&n($('householdSize').value)>0?$('householdSizeUnit').value:source.householdSizeUnit};
+  const list=dayData().entries;
+  if(editId){const i=list.findIndex(e=>e.id===editId);if(i<0){toast('Original food entry was not found');return;}list[i]=entry;}
+  else list.push(entry);
+  if(!editId&&customMode&&$('saveCustomFood').checked){
+    const key=source.name.toLowerCase(),found=state.customFoods.findIndex(f=>f.name.toLowerCase()===key);
+    const custom={name:source.name,...Object.fromEntries(metrics.map(k=>[k,n(source[k])])),portionWeight:entry.portionWeight,portionUnit:entry.portionUnit,
+      measureReference:entry.measureReference,householdSize:entry.householdSize,householdSizeUnit:entry.householdSizeUnit};
+    if(found>=0)state.customFoods[found]=custom;else state.customFoods.unshift(custom);
+  }
+  if($('saveFavorite').checked)saveFavoriteFood(source,entry);
+  markEdited();saveState();$('foodDialog').close();render();expandedMeal=meal;renderMeals(dayData().entries);toast(editId?'Food updated':'Food added');
+});
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>$(b.dataset.close).close()));
 
-  dayData().entries = source.map(e => ({...e, id: uid()}));
-  saveState();
-  render();
-  showToast("Previous day's foods copied successfully");
+// Saved Foods store individual foods. Legacy saved-meal combinations are preserved and usable.
+$('savedMealsBtn').addEventListener('click',openSavedFoods);
+function openSavedFoods(){renderSavedFoods();$('savedMealsDialog').showModal();}
+function renderSavedFoods(){
+  const body=$('savedMealsContent'),favorites=state.savedFoods||[];
+  body.innerHTML=`<div class="saved-fav-list">${favorites.length?favorites.map(f=>`<div class="saved-item"><div class="saved-item-line"><div><strong>${escapeHTML(f.name)}</strong><p>${escapeHTML(entryAmountLabel(f))} · ${fmt(n(f.calories)*n(f.qty||1))} kcal saved</p></div><button type="button" class="primary-btn" data-use-fav="${escapeHTML(f.id)}">＋ Add</button></div><button type="button" class="danger-link" data-remove-fav="${escapeHTML(f.id)}">Remove favorite</button></div>`).join(''):'<p class="empty-message">No saved foods yet. Log a food and tap ☆ Save, or tick “Save to Saved Foods” while logging.</p>'}</div>
+  ${state.savedMeals.length?`<details class="legacy-meals"><summary>Older saved meal combinations (${state.savedMeals.length})</summary><div id="legacyMeals"></div></details>`:''}`;
+  body.querySelectorAll('[data-use-fav]').forEach(btn=>btn.addEventListener('click',()=>{
+    const fav=state.savedFoods.find(x=>x.id===btn.dataset.useFav);if(!fav)return;
+    $('savedMealsDialog').close();openFoodDialog('Breakfast','',fav);toast('Choose the meal and confirm the amount');
+  }));
+  body.querySelectorAll('[data-remove-fav]').forEach(btn=>btn.addEventListener('click',()=>{
+    const fav=state.savedFoods.find(x=>x.id===btn.dataset.removeFav);if(!fav)return;
+    if(!confirm(`Remove “${fav.name}” from Saved Foods? Logged foods will remain.`))return;
+    state.savedFoods=state.savedFoods.filter(x=>x.id!==fav.id);saveState();renderSavedFoods();
+  }));
+  if(state.savedMeals.length){
+    const container=$('legacyMeals');
+    container.innerHTML=state.savedMeals.map(m=>`<div class="saved-item"><strong>${escapeHTML(m.name)}</strong><p>${(m.entries||[]).length} items · old saved combination</p><div class="saved-actions"><select data-old-dest="${escapeHTML(m.id)}" aria-label="Destination meal">${mealNames.map(category=>`<option ${m.category===category?'selected':''}>${category}</option>`).join('')}</select><button type="button" data-old-add="${escapeHTML(m.id)}">Use combination</button><button type="button" class="danger" data-old-delete="${escapeHTML(m.id)}">Delete legacy</button></div></div>`).join('');
+    container.querySelectorAll('[data-old-add]').forEach(b=>b.addEventListener('click',()=>{
+      const old=state.savedMeals.find(m=>m.id===b.dataset.oldAdd);if(!old||!Array.isArray(old.entries))return;
+      const choice=container.querySelectorAll('[data-old-dest]');const dest=[...choice].find(x=>x.dataset.oldDest===old.id)?.value||old.category;
+      dayData().entries.push(...old.entries.map(e=>({...e,id:uid(),meal:dest})));markEdited();saveState();$('savedMealsDialog').close();render();toast('Old saved combination reused');
+    }));
+    container.querySelectorAll('[data-old-delete]').forEach(b=>b.addEventListener('click',()=>{
+      if(!confirm('Delete this older saved meal combination? Diary entries remain.'))return;
+      state.savedMeals=state.savedMeals.filter(x=>x.id!==b.dataset.oldDelete);saveState();renderSavedFoods();
+    }));
+  }
+}
+$('copyYesterdayBtn').addEventListener('click',()=>{
+  const source=readDay(shiftISO(selectedDate,-1)).entries;
+  if(!source.length){toast('No foods logged on the previous day');return;}
+  const target=dayData();
+  if(target.entries.length&&!confirm('Replace this date’s foods with yesterday’s foods?'))return;
+  target.entries=source.map(e=>({...e,id:uid()}));target.complete=false;saveState();render();toast('Yesterday’s foods copied');
 });
-$("diaryDate").value=todayISO();
-$("diaryDate").addEventListener("change",render);
-function shiftDate(delta){$("diaryDate").value=shiftISO(currentDate(),delta);render();}
-$("prevDay").addEventListener("click",()=>shiftDate(-1));$("nextDay").addEventListener("click",()=>shiftDate(1));
-$("pickDate").addEventListener("click",()=>{
-  const input=$("diaryDate");
-  try { if(typeof input.showPicker==="function") input.showPicker(); else input.click(); }
-  catch(e){input.focus();input.click();}
+
+// Daily & weekly insights. Only explicitly completed days count towards averages.
+$('dailyTab').addEventListener('click',()=>{currentInsight='daily';updateInsightsTabs();renderInsights();});
+$('insightPrev').addEventListener('click',()=>{insightDate=shiftISO(insightDate,currentInsight==='weekly'?-7:-1);renderInsights();});
+$('insightNext').addEventListener('click',()=>{insightDate=shiftISO(insightDate,currentInsight==='weekly'?7:1);renderInsights();});
+$('weeklyTab').addEventListener('click',()=>{currentInsight='weekly';updateInsightsTabs();renderInsights();});
+function updateInsightsTabs(){
+  $('dailyTab').classList.toggle('active',currentInsight==='daily');
+  $('weeklyTab').classList.toggle('active',currentInsight==='weekly');
+}
+function gapDetails(total){
+  return ['protein','carbs','fat','fibre'].map(k=>({key:k,got:total[k],target:n(state.targets[k]),gap:Math.max(0,n(state.targets[k])-total[k])})).filter(x=>x.target>0);
+}
+function metricLabel(k){return {protein:'Protein',carbs:'Carbs',fat:'Fat',fibre:'Fibre'}[k]||k;}
+const suggestionsByGap={
+  protein:['Paneer (100 g)','Boiled egg (1)','Skyr plain (100 g)','Roasted chana (30 g)','Tofu (100 g)','Chicken breast cooked (100 g)','Greek yogurt plain (100 g)'],
+  fibre:['Guava (1 medium)','Chickpeas boiled (100 g)','Roasted chana (30 g)','Apple (1 medium)','Sprouts salad (1 cup)','Oats cooked in water (1 cup)'],
+  carbs:['Banana (1 medium)','Roti / chapati (1 medium)','Cooked rice (1 cup)','Oats cooked in water (1 cup)','Sweet potato boiled (100 g)'],
+  fat:['Almonds (10)','Peanuts (30 g)','Walnuts (15 g)','Avocado (100 g)','Chia seeds (1 tbsp)']
+};
+function foodIdeas(gaps){
+  const p=state.profile||{};const diet=p.diet||'all';
+  const excludeNonVeg=(name)=>/chicken|fish|prawn|mutton|egg/i.test(name);
+  const excludeEggs=(name)=>/egg/i.test(name);
+  const excludeDairy=(name)=>/paneer|milk|curd|yogurt|skyr|cheese|butter|ghee/i.test(name);
+  const sorted=gaps.filter(g=>g.gap>0).sort((a,b)=>(b.gap/b.target)-(a.gap/a.target));
+  const out=[],seen=new Set();
+  for(const gap of sorted){
+    for(const name of suggestionsByGap[gap.key]||[]){
+      if(seen.has(name))continue;
+      if((diet==='veg'||diet==='vegan')&&excludeNonVeg(name))continue;
+      if(diet==='eggs'&&/chicken|fish|prawn|mutton/i.test(name))continue;
+      if(diet==='vegan'&&excludeDairy(name))continue;
+      const food=dataFoods.find(f=>f.name===name);if(!food)continue;
+      out.push({food,focus:gap.key});seen.add(name);break;
+    }
+    if(out.length>=3)break;
+  }
+  return out;
+}
+function gapHTML(gaps){
+  if(!gaps.length)return '<p>Set daily targets in Profile to see the amounts remaining.</p>';
+  return `<div class="gaps-list">${gaps.map(x=>`<div class="gap-row"><span>${metricLabel(x.key)}</span><div class="track"><span style="width:${pct(x.got,x.target)}%"></span></div><strong>${fmt(x.gap)} g left</strong></div>`).join('')}</div>`;
+}
+function renderInsights(){
+  const first=currentInsight==='weekly'?shiftISO(insightDate,-6):insightDate;
+  $('insightPeriod').textContent=currentInsight==='weekly'?`${shortDate(first)} – ${datePretty(insightDate)}`:datePretty(insightDate);
+  $('insightPeriodHint').textContent=currentInsight==='weekly'?'7-day period ending on this date':'One day at a time';
+  if(currentInsight==='weekly')return renderWeekly();
+  const d=readDay(insightDate),total=sum(d.entries),gaps=gapDetails(total),body=$('insightsBody');
+  if(!d.entries.length){body.innerHTML='<div class="placeholder-card"><h2>Log a meal to get started</h2><p>Choose a date in Diary, log your food and mark the day complete to see its analysis.</p></div>';return;}
+  if(!d.complete){
+    body.innerHTML=`<article class="insight-card"><span class="insight-badge warn">Day still in progress</span><h2>${escapeHTML(datePretty(insightDate))}</h2><p>You’ve logged ${d.entries.length} foods (${Math.round(total.calories)} kcal). When you're finished, tap <strong>Finish day</strong> in the Diary to unlock your daily summary and food ideas.</p><button type="button" class="outline-btn" id="returnDiary">Back to diary</button></article>`;
+    $('returnDiary').addEventListener('click',()=>navigate('diary'));return;
+  }
+  const t=state.targets;
+  let nutritionNotes=[];
+  if(n(t.protein)>0){const diff=t.protein-total.protein;if(diff>0)nutritionNotes.push(`${fmt(diff)} g below your protein target`);else nutritionNotes.push('Your logged protein met your target');}
+  if(n(t.fibre)>0){const diff=t.fibre-total.fibre;if(diff>0)nutritionNotes.push(`${fmt(diff)} g below your fibre target`);else nutritionNotes.push('Your logged fibre met your target');}
+  const ideas=foodIdeas(gaps);
+  const ideasHTML=ideas.length?ideas.map(({food,focus})=>`<div class="food-idea"><div><strong>${escapeHTML(food.name)}</strong><small>Approx. ${fmt(food.calories)} kcal · ${fmt(food[focus])} g ${metricLabel(focus).toLowerCase()} per catalogue serving</small></div><span class="value">${escapeHTML(metricLabel(focus))}</span></div>`).join(''):'<p>Your logged nutrition meets the configured macro targets, or there are no matching suggestions.</p>';
+  body.innerHTML=`<article class="insight-card"><span class="insight-badge">✓ Logged day complete</span><h2>${escapeHTML(datePretty(insightDate))}</h2><div class="kpi-row"><div class="kpi"><strong>${Math.round(total.calories)}</strong><span>kcal logged</span></div><div class="kpi"><strong>${n(t.calories)?`${Math.round(total.calories-t.calories)>0?'+':''}${Math.round(total.calories-t.calories)}`:'—'}</strong><span>kcal vs daily target</span></div></div><p style="margin-top:14px">${escapeHTML(nutritionNotes.join(' · ')||'Set macro targets in Profile to get more useful insights.')}</p></article><article class="insight-card"><h2>What’s left against your targets?</h2><p>Gaps are estimates based on logged portions—not diagnosed nutrient deficiencies. There is no need to force every target every day.</p>${gapHTML(gaps)}</article><article class="insight-card"><h2>Food ideas for your gaps</h2><p>Examples from the Indian food catalogue, adjusted for your food preference. Suggestions are optional and may also contribute other macros.</p>${ideasHTML}</article>`;
+}
+function renderWeekly(){
+  const days=Array.from({length:7},(_,i)=>shiftISO(insightDate,i-6));
+  const completed=days.filter(date=>readDay(date).complete&&readDay(date).entries.length);
+  const totals=completed.map(date=>sum(readDay(date).entries));
+  const dailyAvg=totals.length?Object.fromEntries(metrics.map(k=>[k,totals.reduce((s,t)=>s+t[k],0)/totals.length])):emptyTotals();
+  const maxCal=Math.max(n(state.targets.calories),...days.map(d=>sum(readDay(d).entries).calories),1);
+  const bars=days.map(date=>{
+    const d=readDay(date);const cal=sum(d.entries).calories;
+    const height=Math.max(4,Math.round(cal/maxCal*112));
+    return `<div class="bar-col ${d.complete?'is-complete':''}" title="${escapeHTML(datePretty(date))}: ${Math.round(cal)} kcal${d.complete?' (complete)':' (in progress)'}"><span class="bar-value">${cal?Math.round(cal):'—'}</span><div class="bar-body" style="height:${height}px"></div><small>${weekday(date)}</small></div>`;
+  }).join('');
+  const trendHTML=weightTrendHTML();
+  $('insightsBody').innerHTML=`<article class="insight-card"><span class="insight-badge">${completed.length}/7 completed days</span><h2>${escapeHTML(shortDate(days[0]))} – ${escapeHTML(datePretty(days[6]))}</h2><div class="weekly-bars">${bars}</div><p>Filled bars: completed days · Pale bars: still in progress. Unfinished days are excluded from averages.</p><div class="kpi-row"><div class="kpi"><strong>${completed.length?Math.round(dailyAvg.calories):'—'}</strong><span>avg. kcal / completed day</span></div><div class="kpi"><strong>${completed.length?fmt(dailyAvg.protein):'—'}</strong><span>avg. protein g / completed day</span></div></div></article><article class="insight-card"><h2>Average macro gaps</h2>${completed.length?gapHTML(gapDetails(dailyAvg)):'<p>No completed days yet. Mark your diary days complete first.</p>'}</article><article class="insight-card"><h2>Measured weight trend</h2>${trendHTML}</article>`;
+}
+
+// Profile is read-only until the user explicitly chooses Edit.
+function fieldValue(key){
+  const p=state.profile||{};
+  return p[key]??(key==='goal'?'maintain':key==='diet'?'all':key==='lifeStage'?'general':key==='activity'?'sedentary':'');
+}
+function fillProfileFields(){
+  for(const key of ['name','age','height','weight','activity','goal','diet','lifeStage']){
+    const el=$(`profile${key[0].toUpperCase()+key.slice(1)}`);if(el)el.value=fieldValue(key);
+  }
+  metrics.forEach(k=>{$(`target${k[0].toUpperCase()+k.slice(1)}`).value=state.targets[k]??'';});
+}
+function setProfileEditor(which,on){
+  const about=which==='About';
+  if(about)editingAbout=on;else editingTargets=on;
+  $(`${about?'about':'target'}Fields`).hidden=!on;
+  $(`${about?'about':'targets'}Summary`).hidden=on;
+  $(`edit${about?'About':'Targets'}Btn`).hidden=on;
+  if(on)fillProfileFields();
+}
+function summaryLine(label,value){return `<div><span>${escapeHTML(label)}</span><strong>${escapeHTML(String(value))}</strong></div>`;}
+function renderProfile(){
+  const p=state.profile||{};
+  const display={sedentary:'Mostly seated',light:'Lightly active',moderate:'Moderately active',active:'Very active'};
+  const goals={maintain:'Maintain weight',gain:'Gain weight',lose:'Lose weight',fuel:'Nutrition tracking only'};
+  const diets={all:'All foods',veg:'Vegetarian',eggs:'Vegetarian + eggs',vegan:'Vegan'};
+  const stages={general:'General adult',pregnant:'Pregnant',breastfeeding:'Breastfeeding',other:'Other / prefer not to say'};
+  $('aboutSummary').innerHTML=summaryLine('Name',p.name||'Not set')+summaryLine('Age',p.age?`${p.age} years`:'Not set')+summaryLine('Height',p.height?`${p.height} cm`:'Not set')+summaryLine('Current weight',p.weight?`${p.weight} kg`:'Not set')+summaryLine('Activity',display[p.activity]||'Mostly seated')+summaryLine('Goal',goals[p.goal]||'Maintain weight')+summaryLine('Food preference',diets[p.diet]||'All foods')+summaryLine('Life stage',stages[p.lifeStage]||'General adult');
+  $('targetsSummary').innerHTML=metrics.map(k=>summaryLine(k==='fibre'?'Fibre':k[0].toUpperCase()+k.slice(1),`${fmt(state.targets[k])} ${k==='calories'?'kcal':'g'}`)).join('');
+  fillProfileFields();
+  setProfileEditor('About',false);setProfileEditor('Targets',false);
+  $('weightDate').value=todayISO();$('weightValue').value=state.weights[todayISO()]||'';
+  renderWeightHistory();
+}
+$('editAboutBtn').addEventListener('click',()=>setProfileEditor('About',true));
+$('cancelAboutBtn').addEventListener('click',()=>setProfileEditor('About',false));
+$('editTargetsBtn').addEventListener('click',()=>setProfileEditor('Targets',true));
+$('cancelTargetsBtn').addEventListener('click',()=>setProfileEditor('Targets',false));
+$('saveAboutBtn').addEventListener('click',()=>{
+  const p={...state.profile};
+  for(const key of ['name','age','height','weight','activity','goal','diet','lifeStage']){
+    const el=$(`profile${key[0].toUpperCase()+key.slice(1)}`);
+    if(['age','height','weight'].includes(key)){
+      const v=el.value.trim();if(v&&(!el.checkValidity()||!Number.isFinite(Number(v)))){toast(`Check ${key}`);el.focus();return;}
+      p[key]=v===''?'':n(v);
+    }else p[key]=el.value.trim();
+  }
+  state.profile=p;saveState();render();renderProfile();toast('Profile saved');
 });
-document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
-$("calorieRing").addEventListener("click",openTargets);
+$('saveTargetsBtn').addEventListener('click',()=>{
+  for(const k of metrics){const el=$(`target${k[0].toUpperCase()+k.slice(1)}`);if(!el.checkValidity()||!Number.isFinite(Number(el.value))){toast('Check target amounts');el.focus();return;}}
+  metrics.forEach(k=>{const el=$(`target${k[0].toUpperCase()+k.slice(1)}`);state.targets[k]=el.value===''?0:n(el.value);});
+  saveState();render();renderProfile();toast('Targets saved');
+});
+function validWeights(){
+  return Object.entries(state.weights).filter(([date,v])=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&n(v)>=20&&n(v)<=400).sort(([a],[b])=>a.localeCompare(b));
+}
+function weightTrendHTML(){
+  const weights=validWeights();
+  if(!weights.length)return '<p>No check-ins yet. Add a dated weight in Profile to see the measured trend.</p>';
+  if(weights.length===1)return `<p>One check-in: <strong>${fmt(weights[0][1])} kg</strong> on ${escapeHTML(datePretty(weights[0][0]))}. Add another date to show change.</p>`;
+  const min=Math.min(...weights.map(x=>n(x[1]))),max=Math.max(...weights.map(x=>n(x[1]))),padding=Math.max(0.7,(max-min)*0.25);
+  const lower=min-padding,upper=max+padding,first=Date.parse(weights[0][0]+'T12:00:00Z'),last=Date.parse(weights[weights.length-1][0]+'T12:00:00Z');
+  const points=weights.map(([date,value])=>({date,value:n(value),x:30+300*(Date.parse(date+'T12:00:00Z')-first)/Math.max(1,last-first),y:123-93*(n(value)-lower)/(upper-lower)}));
+  const line=points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const delta=n(weights[weights.length-1][1])-n(weights[0][1]);
+  const svg=`<svg class="weight-svg" viewBox="0 0 360 162" role="img" aria-label="Measured weight change from ${escapeHTML(datePretty(weights[0][0]))} to ${escapeHTML(datePretty(weights[weights.length-1][0]))}"><line x1="30" y1="123" x2="330" y2="123" stroke="#dce7df"/><polyline points="${line}" fill="none" stroke="#248764" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${points.map(pt=>`<circle cx="${pt.x}" cy="${pt.y.toFixed(1)}" r="4.5" fill="#248764" stroke="#fff" stroke-width="2"/>`).join('')}<text x="30" y="145" text-anchor="start" class="axis-label">${escapeHTML(shortDate(weights[0][0]))}</text><text x="330" y="145" text-anchor="end" class="axis-label">${escapeHTML(shortDate(weights[weights.length-1][0]))}</text></svg>`;
+  return `<div class="weight-summary"><strong>${delta>0?'+':''}${fmt(delta)} kg</strong><span> measured change · ${weights.length} check-ins</span></div>${svg}<p class="field-help">${fmt(weights[0][1])} → ${fmt(weights[weights.length-1][1])} kg. This includes check-ins outside the selected analysis week. Short-term changes can reflect water, timing and other factors.</p>`;
+}
+function renderWeightHistory(){
+  const arr=validWeights().slice().reverse().slice(0,10);
+  $('weightHistory').innerHTML=arr.length?arr.map(([date,value])=>`<div class="weight-row"><span>${escapeHTML(datePretty(date))}</span><span><strong>${fmt(value)} kg</strong> <button type="button" data-delete-weight="${date}" aria-label="Delete weight for ${date}">×</button></span></div>`).join(''):'<p class="empty-message">No check-ins yet.</p>';
+  $('profileWeightChart').innerHTML=weightTrendHTML();
+  $('weightHistory').querySelectorAll('[data-delete-weight]').forEach(b=>b.addEventListener('click',()=>{
+    if(!confirm('Delete this weight check-in?'))return;
+    delete state.weights[b.dataset.deleteWeight];saveState();renderWeightHistory();
+  }));
+}
+$('saveWeightBtn').addEventListener('click',()=>{
+  const date=$('weightDate').value,value=n($('weightValue').value);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(value)||value<20||value>400){toast('Enter a valid date and measured weight');return;}
+  state.weights[date]=value;
+  // Only update the profile 'current weight' if it is the latest dated check-in.
+  const newest=validWeights().at(-1);if(newest&&newest[0]===date)state.profile.weight=value;
+  saveState();renderProfile();$('weightDate').value=date;$('weightValue').value=value;toast('Weight check-in saved');
+});
+$('backupBtn').addEventListener('click',()=>{
+  try{
+    const payload={app:'Indian Food Diary',exportedAt:new Date().toISOString(),version:2,diary:state};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`indian-food-diary-backup-${todayISO()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+    toast('Backup downloaded — keep it safe');
+  }catch(e){toast('Unable to create backup');}
+});
+$('restoreInput').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];if(!file)return;
+  try{
+    if(file.size>12*1024*1024)throw Error('Backup file is too large');
+    const payload=JSON.parse(await file.text());const next=payload.diary;
+    if(!payload||payload.app!=='Indian Food Diary'||!next||!next.days||typeof next.days!=='object'||Array.isArray(next.days)||!Array.isArray(next.savedMeals)||!next.targets)throw Error('Not an Indian Food Diary backup');
+    if(Object.keys(next.days).length>20000)throw Error('Too many dates');
+    for(const [date,day] of Object.entries(next.days)){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!day||!Array.isArray(day.entries)||day.entries.length>5000)throw Error('Invalid diary entries');
+      for(const entry of day.entries){if(!entry||typeof entry.name!=='string'||entry.name.length>250||!mealNames.includes(entry.meal)||metrics.some(k=>!Number.isFinite(Number(entry[k]))||Number(entry[k])<0)||!Number.isFinite(Number(entry.qty))||Number(entry.qty)<=0)throw Error('Invalid food entry');}
+    }
+    if(!confirm('Restore this backup? It will replace the diary data currently stored in this browser. Export your current backup first if you need it.'))return;
+    localStorage.setItem(storageKey,JSON.stringify(next));state=loadState();selectedDate=todayISO();navigate('diary');render();toast('Backup restored');
+  }catch(err){toast(`Restore failed: ${err.message}`);}finally{event.target.value='';}
+});
+
+// First render; no personal information is uploaded anywhere.
+$('diaryDate').value=selectedDate;
 render();
