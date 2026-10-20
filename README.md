@@ -1,32 +1,44 @@
-# Indian Food Diary 🥗
+# Indian Food Diary 🌿
 
-A simple, mobile-friendly food tracking web app designed to make everyday nutrition tracking easier, with a focus on Indian meals.
+A simple, mobile-friendly Indian food and nutrition tracking web application.
 
-## About the project
+**Live app:** https://richaritvik.github.io/Indian-Food-Diary/
 
-An Indian food diary designed to make everyday nutrition tracking simpler. Log your meals, explore familiar Indian foods, and keep track of calories and macronutrients throughout the day. Built as an independent project with a focus on simplicity and clarity.
+## About the Project
 
-## Project goals
+Indian Food Diary is my first independent product-building project, created while learning AI, product management, and web application development.
 
-- Track everyday meals in one place.
-- Make logging familiar Indian foods more convenient.
-- View daily calorie and macronutrient totals.
-- Create a straightforward, mobile-friendly user experience.
+The goal is to make everyday Indian food logging easier and help users understand their calorie intake, macronutrients, and nutrition trends.
 
-## Built with
+## Key Features
 
-- HTML
-- CSS
-- JavaScript
+- Indian food database with 664 food entries
+- Daily calorie, protein, carbohydrate, fat, and fibre tracking
+- Food logging with portion, gram, and millilitre measurements
+- Custom foods and Saved Foods
+- Daily and weekly nutrition insights
+- Personal profile and nutrition targets
+- Weight check-ins and measured weight trends
+- JSON backup and restore
+- Mobile-friendly interface
 
-## Try the app
+## Technology
 
-**Live website:** https://richaritvik.github.io/Indian-Food-Diary/
+HTML, CSS, and JavaScript, hosted using GitHub Pages.
 
-## Feedback
+## Current Status
 
-I'm continuing to improve this project. Suggestions, usability feedback and ideas for useful features are welcome.
+**V2.2 — Public Beta**
 
-## Disclaimer
+The application is under active development. Nutritional values are estimates, and user data is stored locally in the browser.
 
-Nutrition values are estimates and can vary with ingredients, portion sizes and cooking methods. This tool is intended for general food tracking and is not a substitute for professional medical or nutrition advice.
+## Future Improvements
+
+- Improve food database accuracy and serving-size conversions
+- Add a Progressive Web App experience
+- Improve personalized nutrition insights
+- Explore optional cloud backup and account synchronization
+
+## Built By
+
+A Trust & Safety and Compliance professional exploring AI product management and learning to build useful digital products.
